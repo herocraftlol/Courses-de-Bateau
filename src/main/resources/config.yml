@@ -1,0 +1,22 @@
+# Configuration globale du plugin Course de Bateau.
+# Chaque course (arene) peut surcharger individuellement min-players, max-players,
+# lobby-countdown et start-countdown via les commandes admin /cdb <course> ...
+# Une valeur -1 sur une course signifie "non defini" -> on retombe sur ces valeurs globales.
+
+default-min-players: 2
+default-max-players: 8
+
+# Duree (secondes) du compte a rebours dans le lobby d'attente, une fois le nombre
+# minimum de joueurs atteint, avant de teleporter tout le monde dans les bateaux.
+default-lobby-countdown-seconds: 20
+
+# Duree (secondes) du compte a rebours "figé dans le bateau" juste avant le depart
+# (les joueurs sont deja dans leur bateau, immobilises, en attente du top depart).
+default-start-countdown-seconds: 5
+
+# Si un joueur quitte le serveur pendant une course, on considere qu'il abandonne
+# (il est retire de la course proprement, comme avec /cdb leave).
+remove-on-disconnect: true
+
+messages:
+  prefix: "&b&lCDB &8» &r"

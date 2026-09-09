@@ -1,0 +1,40 @@
+name: CourseDeBateau
+version: 1.0.0
+main: com.herocraft.coursedebateau.CourseDeBateauPlugin
+api-version: 1.21
+author: HeroCraft
+description: Course de Bateau - minijeu Minecraft Paper avec arenes multiples, points de passage anti-triche, lobby d'attente, compte a rebours et GUI de selection. Configurez vos circuits, lancez des parties en quelques commandes et faites s'affronter vos joueurs sur l'eau !
+
+commands:
+  cdb:
+    description: Commande principale du plugin Course de Bateau
+    usage: |
+      /cdb gui
+      /cdb list
+      /cdb join <course>
+      /cdb leave
+      /cdb create <course>
+      /cdb delete <course>
+      /cdb reload
+      /cdb <course> info
+      /cdb <course> setlobby
+      /cdb <course> addboatspawn
+      /cdb <course> removeboatspawn <index>
+      /cdb <course> setcheckpoint <index> <pos1|pos2>
+      /cdb <course> removecheckpoint <index>
+      /cdb <course> laps <nombre>
+      /cdb <course> maxplayers <nombre>
+      /cdb <course> minplayers <nombre>
+      /cdb <course> lobbycountdown <secondes>
+      /cdb <course> startcountdown <secondes>
+      /cdb <course> forcestart
+      /cdb <course> stop
+    aliases: [coursedebateau, boatrace]
+
+permissions:
+  cdb.admin:
+    description: Permission pour administrer les courses de bateaux (creation, configuration des arenes)
+    default: op
+  cdb.play:
+    description: Permission pour participer aux courses de bateaux
+    default: true
