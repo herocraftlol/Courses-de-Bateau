@@ -1,9 +1,9 @@
 name: CourseDeBateau
-version: 1.1.0
+version: 1.2.0
 main: com.herocraft.coursedebateau.CourseDeBateauPlugin
 api-version: 1.21
 author: HeroCraft
-description: Plugin Paper 1.21 de minijeu de courses de bateaux - arenes multiples, ligne de depart/arrivee distincte des checkpoints, zone spectateur facultative, sidebar en direct avec chronos et records persistes
+description: Plugin Paper 1.21 de minijeu de courses de bateaux - arenes multiples, ligne de depart/arrivee distincte des checkpoints, zone spectateur facultative, sidebar en direct avec chronos et records persistes, validation silencieuse des points de passage
 
 commands:
   cdb:

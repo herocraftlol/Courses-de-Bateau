@@ -342,13 +342,9 @@ public class RaceSession {
 
         CuboidRegion next = race.getCheckpoint(data.getNextCheckpointIndex());
         if (next != null && next.contains(loc)) {
-            int passedIndex = data.getNextCheckpointIndex() + 1;
+            // Validation silencieuse : pas de message de chat, le sidebar suffit a
+            // suivre la progression (le joueur ne doit pas voir qu'un checkpoint a ete pointe).
             data.advanceCheckpoint(totalCheckpoints);
-            if (data.isWaitingForFinishLine()) {
-                MessageUtil.sendPrefixed(player, "&eDernier point de passage ! Retourne a la ligne d'arrivee.");
-            } else {
-                MessageUtil.sendPrefixed(player, "&aPoint de passage &e" + passedIndex + "&a valide !");
-            }
         }
     }
 
