@@ -13,6 +13,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.vehicle.VehicleExitEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
+import org.bukkit.util.Vector;
 
 /**
  * Empeche les joueurs inscrits a une course de sortir de leur bateau pendant le
@@ -51,6 +53,35 @@ public class RaceProtectionListener implements Listener {
         if (state == RaceState.STARTING || state == RaceState.RUNNING) {
             event.setCancelled(true);
             MessageUtil.sendPrefixed(player, "&cTu ne peux pas quitter ton bateau pendant la course ! Utilise &e/cdb leave&c pour abandonner.");
+        }
+    }
+
+    /**
+     * Verrouille reellement le bateau pendant la phase STARTING : des qu'il bouge
+     * (meme legerement, sous l'effet de la pagaie), on le reteleporte instantanement
+     * a sa position assignee et on annule sa vitesse. Combine au filet de securite
+     * de RaceSession (verification chaque tick), cela rend le bateau immobile.
+     */
+    @EventHandler
+    public void onVehicleMove(VehicleMoveEvent event) {
+        if (!(event.getVehicle() instanceof Boat boat)) {
+            return;
+        }
+        if (boat.getPassengers().isEmpty() || !(boat.getPassengers().get(0) instanceof Player player)) {
+            return;
+        }
+        RaceManager raceManager = plugin.getRaceManager();
+        RaceSession session = raceManager.getSessionOf(player.getUniqueId());
+        if (session == null) {
+            return;
+        }
+        var locked = session.getLockedBoatSpawn(player.getUniqueId());
+        if (locked == null) {
+            return; // pas (ou plus) en phase STARTING pour ce joueur
+        }
+        if (boat.getLocation().distanceSquared(locked) > 0.0001 || boat.getVelocity().lengthSquared() > 0.0001) {
+            boat.teleport(locked);
+            boat.setVelocity(new Vector(0, 0, 0));
         }
     }
 

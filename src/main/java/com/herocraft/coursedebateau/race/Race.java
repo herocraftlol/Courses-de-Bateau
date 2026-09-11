@@ -14,15 +14,18 @@ import java.util.List;
  * - le nom de la course
  * - le point de lobby (attente avant le depart)
  * - les points de depart individuels (un par joueur, avec orientation du bateau)
- * - les points de passage (checkpoints), dans l'ordre. Le checkpoint d'index 1
- *   (le premier) sert aussi de ligne de depart/arrivee.
+ * - la zone de depart/arrivee (startZone), DISTINCTE des points de passage : c'est
+ *   elle qui declenche la validation d'un tour, pas un checkpoint classique
+ * - les points de passage (checkpoints), dans l'ordre, purement intermediaires
+ * - la zone dans laquelle les joueurs ayant termine restent en mode spectateur
+ *   (spectatorZone) et le point ou ils apparaissent en spectateur (spectatorSpawn)
  * - le nombre de tours a effectuer
  * - min/max joueurs et durees de compte a rebours specifiques a CETTE course
  *   (-1 = non defini, on retombe alors sur les valeurs globales du config.yml)
  *
- * La logique "en direct" (joueurs presents, etat, bateaux...) est geree a part par
- * {@link RaceSession}, afin de garder cette classe uniquement dediee a la configuration
- * persistee sur le disque.
+ * La logique "en direct" (joueurs presents, etat, bateaux, chronos...) est geree a
+ * part par {@link RaceSession}, afin de garder cette classe uniquement dediee a la
+ * configuration persistee sur le disque.
  */
 public class Race {
 
@@ -30,7 +33,12 @@ public class Race {
 
     private Location lobbySpawn;
     private final List<Location> boatSpawns = new ArrayList<>();
+
+    private CuboidRegion startZone;
     private final List<CuboidRegion> checkpoints = new ArrayList<>();
+
+    private CuboidRegion spectatorZone;
+    private Location spectatorSpawn;
 
     private int laps = 1;
     private int maxPlayers = -1;
@@ -74,10 +82,23 @@ public class Race {
         return true;
     }
 
+    // ---- Zone de depart / arrivee ----
+
+    public CuboidRegion getStartZone() {
+        return startZone;
+    }
+
+    public void setStartZone(CuboidRegion startZone) {
+        this.startZone = startZone;
+    }
+
+    // ---- Points de passage (purement intermediaires, distincts de la startZone) ----
+
     public List<CuboidRegion> getCheckpoints() {
         return Collections.unmodifiableList(checkpoints);
     }
 
+    /** Renvoie le checkpoint a l'index 0-based donne, ou null si hors bornes. */
     public CuboidRegion getCheckpoint(int index0Based) {
         if (index0Based < 0 || index0Based >= checkpoints.size()) return null;
         return checkpoints.get(index0Based);
@@ -106,6 +127,37 @@ public class Race {
         checkpoints.remove(index1Based - 1);
         return true;
     }
+
+    // ---- Zone spectateur (apres la course pour un joueur) ----
+
+    public CuboidRegion getSpectatorZone() {
+        return spectatorZone;
+    }
+
+    public void setSpectatorZone(CuboidRegion spectatorZone) {
+        this.spectatorZone = spectatorZone;
+    }
+
+    public Location getSpectatorSpawn() {
+        return spectatorSpawn;
+    }
+
+    public void setSpectatorSpawn(Location spectatorSpawn) {
+        this.spectatorSpawn = spectatorSpawn;
+    }
+
+    /**
+     * Point de reference ou renvoyer un spectateur qui essaie de sortir de la
+     * spectatorZone : le spawn spectateur explicite si defini, sinon le centre
+     * geometrique de la zone, sinon (repli) le lobby.
+     */
+    public Location resolveSpectatorAnchor() {
+        if (spectatorSpawn != null) return spectatorSpawn;
+        if (spectatorZone != null) return spectatorZone.getCenter();
+        return lobbySpawn;
+    }
+
+    // ---- Reglages divers ----
 
     public int getLaps() {
         return laps;
@@ -148,15 +200,18 @@ public class Race {
     }
 
     /**
-     * Une course est jouable des lors qu'elle a un lobby, au moins 2 checkpoints
-     * (depart/arrivee + au moins un point de passage, ce qui empeche de valider un
-     * tour en restant sur place) et au moins autant de spawns bateau que le minimum
-     * de joueurs resolu (verifie au niveau du RaceManager qui connait les valeurs
-     * globales de repli).
+     * Une course est jouable des lors qu'elle a : un lobby, une zone de
+     * depart/arrivee, au moins 1 point de passage intermediaire (ce qui empeche de
+     * valider un tour en restant sur la ligne de depart) et au moins autant de
+     * spawns bateau que le minimum de joueurs resolu (verifie au niveau du
+     * RaceManager qui connait les valeurs globales de repli). La zone spectateur
+     * est OPTIONNELLE : sans elle, les joueurs ayant termine sont simplement
+     * renvoyes a leur position d'origine (pas de confinement spectateur).
      */
     public boolean isFullyConfigured(int resolvedMinPlayers) {
         return lobbySpawn != null
-                && checkpoints.size() >= 2
+                && startZone != null
+                && !checkpoints.isEmpty()
                 && boatSpawns.size() >= Math.max(1, resolvedMinPlayers);
     }
 
@@ -170,10 +225,18 @@ public class Race {
             saveLocation(config, "boatspawns." + (i + 1), boatSpawns.get(i));
         }
 
+        config.set("startzone", null);
+        saveRegion(config, "startzone", startZone);
+
         config.set("checkpoints", null);
         for (int i = 0; i < checkpoints.size(); i++) {
             saveRegion(config, "checkpoints." + (i + 1), checkpoints.get(i));
         }
+
+        config.set("spectatorzone", null);
+        saveRegion(config, "spectatorzone", spectatorZone);
+        config.set("spectatorspawn", null);
+        saveLocation(config, "spectatorspawn", spectatorSpawn);
 
         config.set("laps", laps);
         config.set("max-players", maxPlayers > 0 ? maxPlayers : null);
@@ -193,6 +256,8 @@ public class Race {
             i++;
         }
 
+        this.startZone = loadRegion(config, "startzone");
+
         checkpoints.clear();
         i = 1;
         while (config.isSet("checkpoints." + i + ".corner1.world")) {
@@ -200,6 +265,9 @@ public class Race {
             if (region != null) checkpoints.add(region);
             i++;
         }
+
+        this.spectatorZone = loadRegion(config, "spectatorzone");
+        this.spectatorSpawn = loadLocation(config, "spectatorspawn");
 
         this.laps = Math.max(1, config.getInt("laps", 1));
         this.maxPlayers = config.isSet("max-players") ? config.getInt("max-players") : -1;

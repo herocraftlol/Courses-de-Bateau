@@ -34,6 +34,8 @@ public class RaceManager {
      */
     private final Set<UUID> exitAllowed = ConcurrentHashMap.newKeySet();
 
+    private final RecordManager recordManager;
+
     public RaceManager(CourseDeBateauPlugin plugin) {
         this.plugin = plugin;
         this.racesDir = new File(plugin.getDataFolder(), "races");
@@ -41,10 +43,15 @@ public class RaceManager {
             racesDir.mkdirs();
         }
         this.registryFile = new File(racesDir, "races.yml");
+        this.recordManager = new RecordManager(plugin);
     }
 
     public CourseDeBateauPlugin getPlugin() {
         return plugin;
+    }
+
+    public RecordManager getRecordManager() {
+        return recordManager;
     }
 
     // ---- Chargement / sauvegarde ----
@@ -125,6 +132,7 @@ public class RaceManager {
         saveRegistry();
         File file = raceFile(name);
         if (file.exists()) file.delete();
+        recordManager.deleteRecords(name);
         return true;
     }
 
