@@ -3,6 +3,7 @@ package com.herocraft.coursedebateau.race;
 import com.herocraft.coursedebateau.CourseDeBateauPlugin;
 import com.herocraft.coursedebateau.util.MessageUtil;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Boat;
 import org.bukkit.entity.Player;
@@ -17,7 +18,8 @@ import java.util.UUID;
 
 /**
  * Etat "en direct" d'une course de bateau : joueurs presents, avancement dans le
- * compte a rebours, bateaux, progression sur les checkpoints, classement.
+ * compte a rebours, bateaux, progression sur les checkpoints, chronometrage,
+ * classement et confinement des spectateurs apres l'arrivee.
  *
  * Une instance existe en permanence par course (creee par le {@link RaceManager}),
  * meme quand personne n'y joue (elle est alors simplement en etat WAITING, vide).
@@ -36,6 +38,7 @@ public class RaceSession {
     private final CourseDeBateauPlugin plugin;
     private final RaceManager raceManager;
     private final Race race;
+    private final RaceScoreboard scoreboard = new RaceScoreboard();
 
     private RaceState state = RaceState.WAITING;
 
@@ -53,6 +56,7 @@ public class RaceSession {
     private int lobbyCountdownRemaining;
     private int startCountdownRemaining;
     private int finishedCount;
+    private long raceStartTimeMillis;
 
     public RaceSession(CourseDeBateauPlugin plugin, RaceManager raceManager, Race race) {
         this.plugin = plugin;
@@ -78,6 +82,16 @@ public class RaceSession {
 
     public List<UUID> getParticipantIds() {
         return new ArrayList<>(participants.keySet());
+    }
+
+    /**
+     * Position figee assignee au bateau de ce joueur tant que la course est en
+     * phase STARTING (verrouillage avant le depart). Renvoie null en dehors de
+     * cette phase, ou si le joueur n'a pas de bateau assigne.
+     */
+    public Location getLockedBoatSpawn(UUID playerId) {
+        if (state != RaceState.STARTING) return null;
+        return assignedBoatSpawns.get(playerId);
     }
 
     // ================= JOIN / LEAVE =================
@@ -114,7 +128,7 @@ public class RaceSession {
         return JoinResult.SUCCESS;
     }
 
-    /** Retire un joueur present (que ce soit au lobby ou en pleine course). */
+    /** Retire un joueur present (que ce soit au lobby, en course, ou en spectateur). */
     public boolean leave(Player player) {
         UUID id = player.getUniqueId();
         PlayerRaceData data = participants.remove(id);
@@ -122,8 +136,13 @@ public class RaceSession {
             return false;
         }
 
-        releaseFromBoat(player, data);
+        if (data.isSpectating()) {
+            restoreFromSpectator(player, data);
+        } else {
+            releaseFromBoat(player, data);
+        }
         teleportBack(player, id);
+        scoreboard.remove(player);
         returnLocations.remove(id);
         assignedBoatSpawns.remove(id);
 
@@ -211,7 +230,7 @@ public class RaceSession {
         broadcast("&cPas assez de joueurs, compte a rebours annule.");
     }
 
-    // ================= STARTING (freeze dans le bateau) =================
+    // ================= STARTING (verrouillage dans le bateau) =================
 
     private void beginStarting() {
         state = RaceState.STARTING;
@@ -234,15 +253,18 @@ public class RaceSession {
             data.setBoat(boat);
         }
 
-        // Verrouille les bateaux en place tant que le compte a rebours de depart tourne.
+        // Filet de securite : en plus de la correction instantanee sur VehicleMoveEvent
+        // (voir RaceProtectionListener), on reverrouille aussi chaque tick au cas ou.
         freezeTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             for (Map.Entry<UUID, Location> entry : assignedBoatSpawns.entrySet()) {
                 PlayerRaceData data = participants.get(entry.getKey());
                 if (data == null || data.getBoat() == null || data.getBoat().isDead()) continue;
                 Boat boat = data.getBoat();
                 boat.setVelocity(boat.getVelocity().zero());
-                if (boat.getLocation().distanceSquared(entry.getValue()) > 0.01) {
-                    boat.teleport(entry.getValue());
+                Location locked = entry.getValue();
+                if (boat.getLocation().distanceSquared(locked) > 0.0001
+                        || Math.abs(boat.getLocation().getYaw() - locked.getYaw()) > 0.5) {
+                    boat.teleport(locked);
                 }
             }
         }, 1L, 1L);
@@ -270,16 +292,32 @@ public class RaceSession {
             freezeTask = null;
         }
         finishedCount = 0;
+        raceStartTimeMillis = System.currentTimeMillis();
+        for (UUID id : participants.keySet()) {
+            PlayerRaceData data = participants.get(id);
+            data.resetProgress(raceStartTimeMillis);
+            Player player = Bukkit.getPlayer(id);
+            if (player != null) {
+                scoreboard.assign(player);
+            }
+        }
         broadcast("&a&lC'EST PARTI !");
 
         int totalCheckpoints = race.getCheckpoints().size();
         tickTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             for (UUID id : new ArrayList<>(participants.keySet())) {
                 PlayerRaceData data = participants.get(id);
-                if (data == null || data.isFinished()) continue;
+                if (data == null) continue;
                 Player player = Bukkit.getPlayer(id);
                 if (player == null) continue;
-                checkCheckpoint(player, data, totalCheckpoints);
+
+                if (data.isSpectating()) {
+                    enforceSpectatorBounds(player);
+                } else if (!data.isFinished()) {
+                    checkCheckpoint(player, data, totalCheckpoints);
+                }
+
+                scoreboard.update(player, race, this, data, raceManager.getRecordManager(), raceStartTimeMillis);
             }
         }, 2L, 2L);
     }
@@ -288,9 +326,10 @@ public class RaceSession {
         Location loc = player.getLocation();
 
         if (data.isWaitingForFinishLine()) {
-            CuboidRegion finishLine = race.getCheckpoint(0);
+            CuboidRegion finishLine = race.getStartZone();
             if (finishLine != null && finishLine.contains(loc)) {
-                data.completeLap();
+                long now = System.currentTimeMillis();
+                data.completeLap(now);
                 if (data.getLapsCompleted() >= race.getLaps()) {
                     finishPlayer(player, data);
                 } else {
@@ -303,27 +342,76 @@ public class RaceSession {
 
         CuboidRegion next = race.getCheckpoint(data.getNextCheckpointIndex());
         if (next != null && next.contains(loc)) {
+            int passedIndex = data.getNextCheckpointIndex() + 1;
             data.advanceCheckpoint(totalCheckpoints);
             if (data.isWaitingForFinishLine()) {
                 MessageUtil.sendPrefixed(player, "&eDernier point de passage ! Retourne a la ligne d'arrivee.");
             } else {
-                MessageUtil.sendPrefixed(player, "&aPoint de passage &e" + (data.getNextCheckpointIndex() - 1)
-                        + "&a valide !");
+                MessageUtil.sendPrefixed(player, "&aPoint de passage &e" + passedIndex + "&a valide !");
             }
         }
     }
 
     private void finishPlayer(Player player, PlayerRaceData data) {
         finishedCount++;
-        data.markFinished(finishedCount);
+        long totalMillis = System.currentTimeMillis() - raceStartTimeMillis;
+        data.markFinished(finishedCount, totalMillis);
+
+        RecordManager records = raceManager.getRecordManager();
+        RecordManager.SubmitResult result = records.submitTime(race.getName(), player.getUniqueId(),
+                player.getName(), totalMillis);
+
+        String extra = "";
+        if (result.newGlobalRecord()) {
+            extra = " &6&l[NOUVEAU RECORD SERVEUR !]";
+        } else if (result.newPersonalRecord()) {
+            extra = " &a&l[Nouveau record personnel !]";
+        }
         broadcast("&6&l#" + finishedCount + " &b" + player.getName() + " &7a termine la course &b"
-                + race.getName() + " &7!");
+                + race.getName() + " &7en &e" + RecordManager.format(totalMillis) + extra);
 
         releaseFromBoat(player, data);
-        teleportBack(player, player.getUniqueId());
+        enterSpectatorMode(player, data);
 
         if (activeRacerCount() == 0) {
             endRace();
+        }
+    }
+
+    // ================= MODE SPECTATEUR (apres l'arrivee) =================
+
+    private void enterSpectatorMode(Player player, PlayerRaceData data) {
+        if (race.getSpectatorZone() == null) {
+            // Pas de zone configuree : comportement simple, on renvoie le joueur direct.
+            teleportBack(player, player.getUniqueId());
+            return;
+        }
+        data.enterSpectatorMode(player.getGameMode());
+        player.setGameMode(GameMode.SPECTATOR);
+        Location anchor = race.resolveSpectatorAnchor();
+        if (anchor != null) {
+            player.teleport(anchor);
+        }
+        MessageUtil.sendPrefixed(player, "&7Tu es maintenant spectateur de la course. Fais &e/cdb leave&7 pour sortir.");
+    }
+
+    private void restoreFromSpectator(Player player, PlayerRaceData data) {
+        if (!data.isSpectating()) return;
+        GameMode previous = data.getPreviousGameMode();
+        player.setGameMode(previous != null ? previous : GameMode.SURVIVAL);
+        data.exitSpectatorMode();
+    }
+
+    /** Verifie que le spectateur reste dans la zone autorisee ; sinon le renvoie au centre. */
+    private void enforceSpectatorBounds(Player player) {
+        CuboidRegion zone = race.getSpectatorZone();
+        if (zone == null) return;
+        if (!zone.contains(player.getLocation())) {
+            Location anchor = race.resolveSpectatorAnchor();
+            if (anchor != null) {
+                player.teleport(anchor);
+                MessageUtil.sendPrefixed(player, "&cTu ne peux pas sortir de la zone spectateur de la course.");
+            }
         }
     }
 
@@ -349,7 +437,8 @@ public class RaceSession {
             Player p = Bukkit.getPlayer(data.getPlayerId());
             String name = p != null ? p.getName() : "???";
             if (data.isFinished()) {
-                broadcast("&e#" + data.getFinishRank() + " &f" + name);
+                broadcast("&e#" + data.getFinishRank() + " &f" + name + " &7- &e"
+                        + RecordManager.format(data.getCurrentTotalMillis(raceStartTimeMillis)));
             } else {
                 broadcast("&7Non termine : &f" + name);
             }
@@ -363,8 +452,13 @@ public class RaceSession {
             Player player = Bukkit.getPlayer(id);
             PlayerRaceData data = participants.get(id);
             if (player != null && data != null) {
-                releaseFromBoat(player, data);
+                if (data.isSpectating()) {
+                    restoreFromSpectator(player, data);
+                } else {
+                    releaseFromBoat(player, data);
+                }
                 teleportBack(player, id);
+                scoreboard.remove(player);
             }
         }
         participants.clear();
@@ -380,8 +474,13 @@ public class RaceSession {
             Player player = Bukkit.getPlayer(id);
             PlayerRaceData data = participants.get(id);
             if (player != null && data != null) {
-                releaseFromBoat(player, data);
+                if (data.isSpectating()) {
+                    restoreFromSpectator(player, data);
+                } else {
+                    releaseFromBoat(player, data);
+                }
                 teleportBack(player, id);
+                scoreboard.remove(player);
             } else if (data != null && data.getBoat() != null && !data.getBoat().isDead()) {
                 data.getBoat().remove();
             }

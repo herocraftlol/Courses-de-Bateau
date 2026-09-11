@@ -27,13 +27,18 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
             "gui", "list", "join", "leave", "create", "delete", "reload", "help");
 
     private static final Set<String> RACE_ADMIN_ACTIONS = Set.of(
-            "info", "setlobby", "addboatspawn", "removeboatspawn", "setcheckpoint", "removecheckpoint",
+            "info", "setlobby", "addboatspawn", "removeboatspawn",
+            "setstartzone", "setcheckpoint", "removecheckpoint",
+            "setspectatorzone", "setspectatorspawn",
             "laps", "maxplayers", "minplayers", "lobbycountdown", "startcountdown", "forcestart", "stop");
 
     private final CourseDeBateauPlugin plugin;
     private final RaceGUI raceGUI;
 
-    /** pos1 en attente pour un checkpoint, cle = joueur + course + index. */
+    /** Portee (en blocs) du raycast utilise pour selectionner un bloc vise (pos1/pos2). */
+    private static final int TARGET_RANGE = 150;
+
+    /** pos1 en attente pour une zone (checkpoint, startzone, spectatorzone), cle = joueur + course + type. */
     private final Map<String, Location> pendingCorner1 = new HashMap<>();
 
     public CDBCommand(CourseDeBateauPlugin plugin) {
@@ -193,8 +198,11 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
             case "setlobby" -> handleSetLobby(sender, race);
             case "addboatspawn" -> handleAddBoatSpawn(sender, race);
             case "removeboatspawn" -> handleRemoveBoatSpawn(sender, race, args);
+            case "setstartzone" -> handleSetZone(sender, race, args, "startzone");
             case "setcheckpoint" -> handleSetCheckpoint(sender, race, args);
             case "removecheckpoint" -> handleRemoveCheckpoint(sender, race, args);
+            case "setspectatorzone" -> handleSetZone(sender, race, args, "spectatorzone");
+            case "setspectatorspawn" -> handleSetSpectatorSpawn(sender, race);
             case "laps" -> handleIntSetting(sender, race, args, "laps");
             case "maxplayers" -> handleIntSetting(sender, race, args, "maxplayers");
             case "minplayers" -> handleIntSetting(sender, race, args, "minplayers");
@@ -214,8 +222,11 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
         MessageUtil.send(sender, " &7Tours : &f" + race.getLaps());
         MessageUtil.send(sender, " &7Lobby : &f" + (race.getLobbySpawn() != null ? "OK" : "&cnon defini"));
         MessageUtil.send(sender, " &7Spawns bateau : &f" + race.getBoatSpawns().size());
-        MessageUtil.send(sender, " &7Points de passage : &f" + race.getCheckpoints().size()
-                + " &7(dont 1 ligne depart/arrivee)");
+        MessageUtil.send(sender, " &7Zone de depart/arrivee : &f" + (race.getStartZone() != null ? "OK" : "&cnon definie"));
+        MessageUtil.send(sender, " &7Points de passage : &f" + race.getCheckpoints().size());
+        MessageUtil.send(sender, " &7Zone spectateur : &f" + (race.getSpectatorZone() != null
+                ? "OK" : "&7non definie (repli : retour direct au lieu d'origine)"));
+        MessageUtil.send(sender, " &7Spawn spectateur : &f" + (race.getSpectatorSpawn() != null ? "OK" : "&7non defini (repli : centre de la zone)"));
         MessageUtil.send(sender, " &7Compte a rebours lobby : &f" + rm.resolveLobbyCountdown(race) + "s");
         MessageUtil.send(sender, " &7Compte a rebours depart : &f" + rm.resolveStartCountdown(race) + "s");
         MessageUtil.send(sender, " &7Configuree et jouable : &f"
@@ -260,11 +271,10 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
         Integer index = parseInt(sender, args[2]);
         if (index == null) return;
         String posArg = args[3].toLowerCase();
-        String key = player.getUniqueId() + ":" + race.getName() + ":" + index;
+        String key = player.getUniqueId() + ":" + race.getName() + ":checkpoint:" + index;
 
         if (posArg.equals("pos1")) {
-            pendingCorner1.put(key, player.getTargetBlockExact(5) != null
-                    ? player.getTargetBlockExact(5).getLocation() : player.getLocation());
+            pendingCorner1.put(key, targetedLocation(player));
             MessageUtil.sendPrefixed(sender, "&aCoin 1 du checkpoint &e#" + index + " &aenregistre. Place-toi au "
                     + "coin oppose et fais &7/cdb " + race.getName() + " setcheckpoint " + index + " pos2");
         } else if (posArg.equals("pos2")) {
@@ -274,8 +284,7 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
                         + " setcheckpoint " + index + " pos1");
                 return;
             }
-            Location targetLoc = player.getTargetBlockExact(5) != null
-                    ? player.getTargetBlockExact(5).getLocation() : player.getLocation();
+            Location targetLoc = targetedLocation(player);
             if (corner1.getWorld() == null || !corner1.getWorld().equals(targetLoc.getWorld())) {
                 MessageUtil.sendPrefixed(sender, "&cLes deux coins doivent etre dans le meme monde.");
                 return;
@@ -286,8 +295,7 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
                 return;
             }
             plugin.getRaceManager().saveRace(race);
-            String label = index == 1 ? " &7(ligne de depart/arrivee)" : "";
-            MessageUtil.sendPrefixed(sender, "&aCheckpoint &e#" + index + " &adefini pour &e" + race.getName() + "&a." + label);
+            MessageUtil.sendPrefixed(sender, "&aCheckpoint &e#" + index + " &adefini pour &e" + race.getName() + "&a.");
         } else {
             MessageUtil.sendPrefixed(sender, "&cUsage : /cdb " + race.getName() + " setcheckpoint <index> <pos1|pos2>");
         }
@@ -303,6 +311,66 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
         boolean ok = race.removeCheckpoint(index);
         if (ok) plugin.getRaceManager().saveRace(race);
         MessageUtil.sendPrefixed(sender, ok ? "&aCheckpoint &e#" + index + " &asupprime." : "&cIndex invalide.");
+    }
+
+    /**
+     * Definit une zone unique de la course (zone de depart/arrivee ou zone spectateur)
+     * via selection pos1/pos2 sur le bloc vise, comme pour les checkpoints, mais stockee
+     * a part pour bien distinguer ces zones des checkpoints classiques tout en
+     * fonctionnant ensemble au moment de valider un tour.
+     */
+    private void handleSetZone(CommandSender sender, Race race, String[] args, String zoneType) {
+        Player player = requirePlayer(sender);
+        if (player == null) return;
+        if (args.length < 3) {
+            MessageUtil.sendPrefixed(sender, "&cUsage : /cdb " + race.getName() + " " + args[1] + " <pos1|pos2>");
+            return;
+        }
+        String posArg = args[2].toLowerCase();
+        String key = player.getUniqueId() + ":" + race.getName() + ":" + zoneType;
+        String label = zoneType.equals("startzone") ? "de depart/arrivee" : "spectateur";
+
+        if (posArg.equals("pos1")) {
+            pendingCorner1.put(key, targetedLocation(player));
+            MessageUtil.sendPrefixed(sender, "&aCoin 1 de la zone " + label + " enregistre. Place-toi au coin "
+                    + "oppose et fais &7/cdb " + race.getName() + " " + args[1] + " pos2");
+        } else if (posArg.equals("pos2")) {
+            Location corner1 = pendingCorner1.remove(key);
+            if (corner1 == null) {
+                MessageUtil.sendPrefixed(sender, "&cDefinis d'abord le coin 1 avec &e/cdb " + race.getName()
+                        + " " + args[1] + " pos1");
+                return;
+            }
+            Location targetLoc = targetedLocation(player);
+            if (corner1.getWorld() == null || !corner1.getWorld().equals(targetLoc.getWorld())) {
+                MessageUtil.sendPrefixed(sender, "&cLes deux coins doivent etre dans le meme monde.");
+                return;
+            }
+            CuboidRegion region = new CuboidRegion(corner1, targetLoc);
+            if (zoneType.equals("startzone")) {
+                race.setStartZone(region);
+            } else {
+                race.setSpectatorZone(region);
+            }
+            plugin.getRaceManager().saveRace(race);
+            MessageUtil.sendPrefixed(sender, "&aZone " + label + " definie pour &e" + race.getName() + "&a.");
+        } else {
+            MessageUtil.sendPrefixed(sender, "&cUsage : /cdb " + race.getName() + " " + args[1] + " <pos1|pos2>");
+        }
+    }
+
+    private void handleSetSpectatorSpawn(CommandSender sender, Race race) {
+        Player player = requirePlayer(sender);
+        if (player == null) return;
+        race.setSpectatorSpawn(player.getLocation());
+        plugin.getRaceManager().saveRace(race);
+        MessageUtil.sendPrefixed(sender, "&aSpawn spectateur de &e" + race.getName() + " &adefini a ta position.");
+    }
+
+    /** Bloc vise par le joueur (jusqu'a TARGET_RANGE blocs), ou sa propre position si rien n'est vise. */
+    private Location targetedLocation(Player player) {
+        var block = player.getTargetBlockExact(TARGET_RANGE);
+        return block != null ? block.getLocation() : player.getLocation();
     }
 
     private void handleIntSetting(CommandSender sender, Race race, String[] args, String field) {
@@ -374,8 +442,11 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
             MessageUtil.send(sender, " &e/cdb <course> setlobby &7- Definir le lobby a ta position");
             MessageUtil.send(sender, " &e/cdb <course> addboatspawn &7- Ajouter un spawn bateau a ta position");
             MessageUtil.send(sender, " &e/cdb <course> removeboatspawn <i> &7- Retirer un spawn bateau");
-            MessageUtil.send(sender, " &e/cdb <course> setcheckpoint <i> <pos1|pos2> &7- Definir un checkpoint (1 = depart/arrivee)");
+            MessageUtil.send(sender, " &e/cdb <course> setstartzone <pos1|pos2> &7- Definir la zone de depart/arrivee (bloc vise)");
+            MessageUtil.send(sender, " &e/cdb <course> setcheckpoint <i> <pos1|pos2> &7- Definir un point de passage intermediaire (bloc vise)");
             MessageUtil.send(sender, " &e/cdb <course> removecheckpoint <i> &7- Retirer un checkpoint");
+            MessageUtil.send(sender, " &e/cdb <course> setspectatorzone <pos1|pos2> &7- Zone ou restent confines les joueurs arrives (bloc vise)");
+            MessageUtil.send(sender, " &e/cdb <course> setspectatorspawn &7- Point d'apparition en spectateur, a ta position");
             MessageUtil.send(sender, " &e/cdb <course> laps <n> &7- Nombre de tours");
             MessageUtil.send(sender, " &e/cdb <course> maxplayers <n> &7- Joueurs max");
             MessageUtil.send(sender, " &e/cdb <course> minplayers <n> &7- Joueurs min");
@@ -416,6 +487,9 @@ public class CDBCommand implements CommandExecutor, TabCompleter {
                     || action.equals("laps") || action.equals("maxplayers") || action.equals("minplayers")
                     || action.equals("lobbycountdown") || action.equals("startcountdown")) {
                 return List.of("<nombre>");
+            }
+            if (action.equals("setstartzone") || action.equals("setspectatorzone")) {
+                return filter(List.of("pos1", "pos2"), args[2]);
             }
         }
 
