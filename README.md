@@ -1,8 +1,8 @@
 # ⛵ CourseDeBateau
 
-> **CourseDeBateau v1.2.0** est un plugin **Paper 1.21** qui transforme votre serveur Minecraft en un véritable arène de **courses de bateaux**. Créez vos circuits, invitez vos joueurs, donnez le top départ… et regardez-les s'affronter sur l'eau dans des courses multijoueurs où chaque centième compte.
+> **CourseDeBateau v1.3.0** est un plugin **Paper 1.21** qui transforme votre serveur Minecraft en un véritable arène de **courses de bateaux**. Créez vos circuits, invitez vos joueurs, donnez le top départ… et regardez-les s'affronter sur l'eau dans des courses multijoueurs où chaque centième compte.
 
-Conçu sur le modèle de minijeux bien connus (HikaBrain, etc.), CourseDeBateau est un plugin **sans dépendance externe**, qui se configure **à 100 % en jeu** par commandes admin. Il propose plusieurs arènes simultanées, une GUI de sélection, des checkpoints **anti-triche** à valider dans l'ordre (en silence), un **lobby d'attente** avec compte à rebours, un **départ figé** dans le bateau, une **zone spectateur** optionnelle pour suivre la fin de course, et un **sidebar en direct** avec chronos, records personnels et records du serveur.
+Conçu sur le modèle de minijeux bien connus (HikaBrain, etc.), CourseDeBateau est un plugin **sans dépendance externe**, qui se configure **à 100 % en jeu** par commandes admin. Il propose plusieurs arènes simultanées, une GUI de sélection, des checkpoints **anti-triche** à valider dans l'ordre (en silence), un **lobby d'attente** avec compte à rebours, un **départ figé** dans le bateau, une **zone spectateur** optionnelle pour suivre la fin de course, un **sidebar en direct** avec chronos, records personnels et records du serveur, et un tout nouveau **diamant admin** qui permet à un opérateur présent dans le lobby d'attente de lancer la course d'un simple clic droit.
 
 ---
 
@@ -23,7 +23,8 @@ Chaque course peut être :
 - 🏟️ **Arènes multiples et indépendantes** — Créez autant de courses que vous voulez (*anneau1*, *grand-prix*, *kart-vs-kart*…) : chacune vit sa propre vie, avec ses propres réglages et sa propre session.
 - 🚦 **Ligne de départ/arrivée distincte des checkpoints** — Impossible de valider un tour en faisant l'aller-retour sur la ligne de départ : il faut avoir franchi **tous les points de passage intermédiaires** avant que la zone de départ/arrivée ne compte comme une nouvelle validation.
 - 🛡️ **Points de passage anti-triche** — Les checkpoints doivent être franchis **dans l'ordre** ; le premier non-atteint est remis à zéro si on revient en arrière. Une course non configurable dans cet ordre est refusée par le plugin.
-- 🤫 **Validation silencieuse des points de passage** *(nouveauté v1.2.0)* — Plus aucun message de chat parasite lorsque vous franchissez un checkpoint : la progression est affichée discrètement dans le sidebar, pour une expérience de course plus immersive et plus juste (les autres joueurs ne sont pas informés du checkpoint que vous avez passé).
+- 🤫 **Validation silencieuse des points de passage** — Plus aucun message de chat parasite lorsque vous franchissez un checkpoint : la progression est affichée discrètement dans le sidebar, pour une expérience de course plus immersive et plus juste (les autres joueurs ne sont pas informés du checkpoint que vous avez passé).
+- 💎 **Diamant admin de lancement instantané** *(nouveauté v1.3.0)* — Tout administrateur (`cdb.admin`) qui rejoint le lobby d'attente d'une course reçoit automatiquement un **diamant** dans le premier slot de sa hotbar, nommé *« Lancer la course »*. Un clic droit dessus force le départ immédiat de la course, comme `/cdb <course> forcestart`, en sautant le compte à rebours du lobby. Le diamant ne peut pas être jeté au sol, et il disparaît automatiquement (en restaurant l'objet qui occupait le slot) dès que la course démarre ou que l'admin quitte le lobby. Plus besoin d'ouvrir un terminal pour tester vos circuits !
 - 🕒 **Lobby d'attente avec compte à rebours** — Une fois le nombre minimum de joueurs atteint, un compte à rebours se lance avant la téléportation ; s'il manque du monde, il s'annule automatiquement.
 - 🧊 **Départ figé dans le bateau** — Juste avant le top départ, les joueurs sont assis dans leur bateau et **totalement immobilisés** pendant quelques secondes (durée configurable). Aucune manœuvre n'est possible avant le feu vert.
 - 🖥️ **GUI de sélection** — La commande `/cdb gui` ouvre un menu visuel listant toutes les courses disponibles avec leur état, leur nombre de joueurs et leur configuration. Un clic pour rejoindre ou quitter.
@@ -54,12 +55,20 @@ ENDING               → classement affiché, reset automatique
 
 ## 📦 Installation
 
-1. Téléchargez la dernière version du `.jar` depuis la page **[Releases](../../releases)** (par exemple `CourseDeBateau-1.2.0.jar`).
+1. Téléchargez la dernière version du `.jar` depuis la page **[Releases](../../releases)** (par exemple `CourseDeBateau-1.3.0.jar`).
 2. Déposez-le dans le dossier `plugins/` de votre serveur **Paper 1.21+**.
 3. Démarrez (ou redémarrez) le serveur — le plugin se charge automatiquement.
 4. (Optionnel) Personnalisez les valeurs par défaut dans `plugins/CourseDeBateau/config.yml`, créé au premier démarrage.
 
 > Aucune dépendance externe n'est requise : le plugin utilise uniquement l'API Paper standard (y compris `Score#numberFormat` pour masquer les nombres du sidebar, disponible depuis 1.20.3).
+
+### Compiler depuis les sources
+
+```bash
+mvn clean package
+```
+
+Le jar compilé se trouve dans `target/CourseDeBateau-1.3.0.jar`. Adaptez la version de `paper-api` dans `pom.xml` (`1.21.4-R0.1-SNAPSHOT`) si votre serveur tourne sur un autre patch de la 1.21 — seule la version majeure `api-version: 1.21` compte vraiment pour la compatibilité en jeu.
 
 ---
 
@@ -109,6 +118,8 @@ Toutes ces commandes prennent la forme `/cdb <course> <sous-commande>`.
 | `/cdb <course> forcestart` | Force le départ immédiat de la course. |
 | `/cdb <course> stop` | Arrête la course en cours et la réinitialise. |
 
+> 💎 **Astuce v1.3.0** : au lieu de taper `/cdb <course> forcestart`, rejoignez simplement le lobby d'attente d'une course en tant qu'admin : un diamant *« Lancer la course »* apparaît dans votre premier slot de hotbar. Un clic droit dessus démarre instantanément la course.
+
 ### 🚀 Mise en place rapide d'une course
 
 1. `/cdb create anneau1`
@@ -133,6 +144,7 @@ Les joueurs peuvent ensuite rejoindre via `/cdb join anneau1` ou via la GUI `/cd
 - **Annulation des dégâts** : pendant `LOBBY_COUNTDOWN` / `STARTING` / `RUNNING`, les dégâts sont annulés pour éviter toute mort accidentelle en course.
 - **Déconnexion** : si un joueur se déconnecte pendant qu'il est inscrit, il est automatiquement retiré de la course (`remove-on-disconnect: true` dans `config.yml`).
 - **Sidebar privé** : chaque joueur a son propre `Scoreboard` (n'affecte pas le scoreboard du serveur), assigné au départ de la course et restauré automatiquement à la sortie.
+- **Diamant admin** : implémenté grâce à la *persistent data container* de Bukkit (`PersistentDataType.BYTE` sur une `NamespacedKey` propre au plugin) afin que le diamant ne soit reconnu que s'il a été placé par CourseDeBateau. Il est marqué *indroppable* via `PlayerDropItemEvent` pour éviter de le perdre ou de le dupliquer.
 
 ---
 
@@ -142,9 +154,16 @@ Si vous aviez déjà configuré des courses avec une version précédente du plu
 
 Pour les versions antérieures à 1.2.0 : la validation des points de passage envoyait un message de chat (« Point de passage X validé ! »). Depuis la 1.2.0, cette validation est **silencieuse** et l'information n'apparaît plus que dans le sidebar — il n'y a rien à migrer côté configuration, le comportement change simplement.
 
+Depuis la v1.3.0, aucune migration n'est requise : le diamant admin est purement additif et n'altère aucune commande existante.
+
 ---
 
 ## 📜 Changelog
+
+### v1.3.0 — Diamant admin de lancement instantané
+- 💎 **Diamant admin « Lancer la course »** *(nouveauté)* : tout admin (`cdb.admin`) qui rejoint le lobby d'attente d'une course reçoit automatiquement un diamant nommé dans le premier slot de sa hotbar. Un clic droit force le départ immédiat (équivalent de `/cdb <course> forcestart`), en sautant le compte à rebours du lobby. Le diamant ne peut pas être jeté et disparaît dès que la course démarre réellement ou que l'admin quitte le lobby, en restaurant l'objet qui occupait le slot auparavant. Implémenté via *persistent data container* et détection du clic droit.
+- 🛠️ **Mise à jour de la liste des sous-commandes** dans `plugin.yml` : ajout de `setstartzone`, `setspectatorzone`, `setspectatorspawn` dans la `usage` de la commande `cdb`.
+- 🔖 **Version bump** : `1.2.0` → `1.3.0` (`pom.xml`, `plugin.yml`).
 
 ### v1.2.0 — Validation silencieuse & nettoyage d'API
 - 🤫 **Validation silencieuse des points de passage** : suppression des messages de chat parasites lors du franchissement d'un checkpoint. Toute la progression reste visible dans le sidebar en direct.

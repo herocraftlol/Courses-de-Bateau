@@ -5,17 +5,20 @@ import com.herocraft.coursedebateau.gui.RaceGUIListener;
 import com.herocraft.coursedebateau.listeners.RaceProtectionListener;
 import com.herocraft.coursedebateau.race.RaceManager;
 import com.herocraft.coursedebateau.util.MessageUtil;
+import org.bukkit.NamespacedKey;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class CourseDeBateauPlugin extends JavaPlugin {
 
     private RaceManager raceManager;
+    private NamespacedKey startItemKey;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         MessageUtil.setPrefix(getConfig().getString("messages.prefix", "&b&lCDB &8» &r"));
 
+        this.startItemKey = new NamespacedKey(this, "start_item");
         this.raceManager = new RaceManager(this);
         raceManager.loadAll();
 
@@ -43,5 +46,9 @@ public class CourseDeBateauPlugin extends JavaPlugin {
 
     public RaceManager getRaceManager() {
         return raceManager;
+    }
+
+    public NamespacedKey getStartItemKey() {
+        return startItemKey;
     }
 }
