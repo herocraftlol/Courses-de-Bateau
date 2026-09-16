@@ -11,9 +11,12 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
 /**
@@ -82,6 +85,44 @@ public class RaceProtectionListener implements Listener {
         if (boat.getLocation().distanceSquared(locked) > 0.0001 || boat.getVelocity().lengthSquared() > 0.0001) {
             boat.teleport(locked);
             boat.setVelocity(new Vector(0, 0, 0));
+        }
+    }
+
+    /**
+     * Diamant de lancement admin (slot 0 pendant le lobby d'attente) : un clic droit
+     * lance immediatement la course, en sautant le compte a rebours du lobby.
+     */
+    @EventHandler
+    public void onStartItemUse(PlayerInteractEvent event) {
+        ItemStack item = event.getItem();
+        if (!RaceSession.isStartItem(plugin, item)) {
+            return;
+        }
+        event.setCancelled(true);
+        if (!(event.getAction().name().contains("RIGHT_CLICK"))) {
+            return;
+        }
+        Player player = event.getPlayer();
+        if (!player.hasPermission("cdb.admin")) {
+            return;
+        }
+        RaceSession session = plugin.getRaceManager().getSessionOf(player.getUniqueId());
+        if (session == null) {
+            return;
+        }
+        boolean started = session.forceStart();
+        if (started) {
+            MessageUtil.sendPrefixed(player, "&aDepart force via le diamant de lancement.");
+        } else {
+            MessageUtil.sendPrefixed(player, "&cImpossible de lancer la course maintenant.");
+        }
+    }
+
+    /** Empeche de jeter le diamant de lancement (evite de le perdre/dupliquer). */
+    @EventHandler
+    public void onDropStartItem(PlayerDropItemEvent event) {
+        if (RaceSession.isStartItem(plugin, event.getItemDrop().getItemStack())) {
+            event.setCancelled(true);
         }
     }
 

@@ -6,11 +6,11 @@
 
     <groupId>com.herocraft</groupId>
     <artifactId>coursedebateau</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
     <packaging>jar</packaging>
 
     <name>CourseDeBateau</name>
-    <description>Plugin Paper 1.21 de minijeu de courses de bateaux : arenes multiples, ligne de depart/arrivee distincte des checkpoints, zone spectateur facultative, sidebar en direct avec chronos et records persistes, validation silencieuse des points de passage</description>
+    <description>Plugin Paper 1.21 de minijeu de courses de bateaux : arenes multiples, ligne de depart/arrivee distincte des checkpoints, zone spectateur facultative, sidebar en direct avec chronos et records persistes, validation silencieuse des points de passage, diamant admin pour lancement instantane</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

@@ -5,8 +5,12 @@ import com.herocraft.coursedebateau.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.entity.Boat;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
@@ -46,6 +50,9 @@ public class RaceSession {
     private final Map<UUID, PlayerRaceData> participants = new LinkedHashMap<>();
     private final Map<UUID, Location> returnLocations = new LinkedHashMap<>();
     private final Map<UUID, Location> assignedBoatSpawns = new LinkedHashMap<>();
+
+    /** Contenu original du slot 0 de la hotbar des admins, le temps qu'ils tiennent le diamant de lancement. */
+    private final Map<UUID, ItemStack> savedSlot0Items = new LinkedHashMap<>();
 
     private BukkitTask lobbyCountdownTask;
     private BukkitTask freezeTask;
@@ -94,6 +101,16 @@ public class RaceSession {
         return assignedBoatSpawns.get(playerId);
     }
 
+    /** Verifie si un item est bien le diamant de lancement admin (via sa persistent data). */
+    public static boolean isStartItem(CourseDeBateauPlugin plugin, ItemStack item) {
+        if (item == null || item.getType() != Material.DIAMOND || !item.hasItemMeta()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        Byte tag = meta.getPersistentDataContainer().get(plugin.getStartItemKey(), PersistentDataType.BYTE);
+        return tag != null && tag == (byte) 1;
+    }
+
     // ================= JOIN / LEAVE =================
 
     public JoinResult join(Player player) {
@@ -120,6 +137,7 @@ public class RaceSession {
         returnLocations.put(player.getUniqueId(), player.getLocation());
         participants.put(player.getUniqueId(), new PlayerRaceData(player.getUniqueId()));
         player.teleport(race.getLobbySpawn());
+        giveStartItemIfAdmin(player);
 
         broadcast("&a" + player.getName() + " &7a rejoint la course &b" + race.getName()
                 + " &7(" + participants.size() + "/" + resolvedMax + ")");
@@ -143,6 +161,7 @@ public class RaceSession {
         }
         teleportBack(player, id);
         scoreboard.remove(player);
+        removeStartItem(player);
         returnLocations.remove(id);
         assignedBoatSpawns.remove(id);
 
@@ -195,6 +214,36 @@ public class RaceSession {
         player.teleport(back != null ? back : player.getWorld().getSpawnLocation());
     }
 
+    /**
+     * Donne le diamant de lancement (slot 0 de la hotbar) a un admin qui rejoint le
+     * lobby d'attente, en sauvegardant ce qu'il y avait avant pour le restaurer plus
+     * tard. Ne fait rien pour un joueur sans la permission cdb.admin.
+     */
+    private void giveStartItemIfAdmin(Player player) {
+        if (!player.hasPermission("cdb.admin")) return;
+        UUID id = player.getUniqueId();
+        if (savedSlot0Items.containsKey(id)) return; // deja donne
+
+        savedSlot0Items.put(id, player.getInventory().getItem(0));
+
+        ItemStack item = new ItemStack(Material.DIAMOND);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(MessageUtil.format("&b&lLancer la course"));
+        meta.setLore(List.of(MessageUtil.format("&7Clic droit pour lancer"),
+                MessageUtil.format("&7immediatement &e" + race.getName() + "&7.")));
+        meta.getPersistentDataContainer().set(plugin.getStartItemKey(), PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        player.getInventory().setItem(0, item);
+    }
+
+    /** Retire le diamant de lancement (s'il l'a) et restaure ce qu'il y avait avant. */
+    private void removeStartItem(Player player) {
+        UUID id = player.getUniqueId();
+        if (!savedSlot0Items.containsKey(id)) return;
+        ItemStack previous = savedSlot0Items.remove(id);
+        player.getInventory().setItem(0, previous);
+    }
+
     // ================= LOBBY COUNTDOWN =================
 
     private void checkAutoStart() {
@@ -234,6 +283,11 @@ public class RaceSession {
 
     private void beginStarting() {
         state = RaceState.STARTING;
+        // On retire le diamant de lancement admin : on quitte le lobby d'attente.
+        for (UUID id : new ArrayList<>(savedSlot0Items.keySet())) {
+            Player admin = Bukkit.getPlayer(id);
+            if (admin != null) removeStartItem(admin);
+        }
         List<Location> spawns = race.getBoatSpawns();
         List<UUID> order = getParticipantIds();
 
@@ -455,6 +509,7 @@ public class RaceSession {
                 }
                 teleportBack(player, id);
                 scoreboard.remove(player);
+                removeStartItem(player);
             }
         }
         participants.clear();
@@ -477,6 +532,7 @@ public class RaceSession {
                 }
                 teleportBack(player, id);
                 scoreboard.remove(player);
+                removeStartItem(player);
             } else if (data != null && data.getBoat() != null && !data.getBoat().isDead()) {
                 data.getBoat().remove();
             }

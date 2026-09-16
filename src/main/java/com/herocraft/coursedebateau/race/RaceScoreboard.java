@@ -57,7 +57,7 @@ public class RaceScoreboard {
         }
 
         int laps = race.getLaps();
-        String lapLabel = data.isFinished() ? "&aTerminee !" : "&e" + (data.getLapsCompleted() + 1) + "&7/&e" + laps;
+        String lapLabel = data.isFinished() ? "&aTerminee !" : "&e" + data.getLapsCompleted() + "&7/&e" + laps;
         String lapTime = data.isFinished() ? "&7-" : "&b" + formatMillis(data.getCurrentLapMillis());
         String totalTime = "&b" + formatMillis(data.getCurrentTotalMillis(raceStartTimeMillis));
 
